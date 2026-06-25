@@ -718,7 +718,7 @@ do
         -- Loadstring to run Chams toggle here via Github
 local code = [[if getgenv().VisualChams then getgenv().VisualChams:Toggle(true) else getgenv().VisualChams = loadstring(game:HttpGet("https://raw.githubusercontent.com/gfeee724-jpg/visual/main/VisualClient/Modules/Chams.lua"))(); getgenv().VisualChams:Toggle(true) end]]
         if val then loadstring(code)() else loadstring("if getgenv().VisualChams then getgenv().VisualChams:Toggle(false) end")() end
-    
+    end)
     local modes = {"Highlight", "PartChams", "Shaders", "Outline", "Box"}
     local currentModeIdx = 1
     local modeLabel = CreateButtonCard("Chams Mode: Highlight", 3, function()
@@ -792,3 +792,4 @@ UserInputService.InputBegan:Connect(function(input, gp)
         end
     end
 end)
+
