@@ -730,12 +730,17 @@ local code = [[if getgenv().VisualChams then getgenv().VisualChams:Toggle(true) 
     
     -- Actually update label when clicked
     for _, wrapper in ipairs(ContentFrame:GetChildren()) do
-        if wrapper.LayoutOrder == 3 then
-            local trigger = wrapper:FindFirstChildOfClass("CanvasGroup"):FindFirstChildOfClass("TextButton")
-            trigger.MouseButton1Click:Connect(function()
-                modeLabel.Text = "Chams Mode: " .. VisualSettings.ChamsMode
-                loadstring("if getgenv().VisualChams then getgenv().VisualChams:SetMode('" .. VisualSettings.ChamsMode .. "') end")()
-            end)
+        if wrapper:IsA("Frame") and wrapper.LayoutOrder == 3 then
+            local canvasGroup = wrapper:FindFirstChildOfClass("CanvasGroup")
+            if canvasGroup then
+                local trigger = canvasGroup:FindFirstChildOfClass("TextButton")
+                if trigger then
+                    trigger.MouseButton1Click:Connect(function()
+                        modeLabel.Text = "Chams Mode: " .. VisualSettings.ChamsMode
+                        loadstring("if getgenv().VisualChams then getgenv().VisualChams:SetMode('" .. VisualSettings.ChamsMode .. "') end")()
+                    end)
+                end
+            end
         end
     end
 
