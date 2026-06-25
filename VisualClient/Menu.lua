@@ -470,7 +470,11 @@ do
     Grid.CellPadding = UDim2.new(0, 12, 0, 12)
     Grid.SortOrder = Enum.SortOrder.LayoutOrder
 
-    local VisualSettings = {ChamsEnabled = false, ChamsMode = "Highlight"}
+    local VisualSettings = {
+        ChamsEnabled = false, 
+        ChamsMode = "Highlight",
+        TargetHudEnabled = false
+    }
     local modes = {"Highlight", "PartChams", "Shaders", "Outline", "Box"}
     local currentModeIdx = 1
     local modeLabel = nil -- will be set below
@@ -537,9 +541,173 @@ do
         return Label
     end
 
+    -- GLOBAL COLOR PICKER MODAL
+    local ColorModal = Instance.new("Frame")
+    ColorModal.Size = UDim2.new(0, 210, 0, 150)
+    ColorModal.Position = UDim2.new(0.5, -105, 0.5, -75)
+    ColorModal.BackgroundColor3 = Theme.Card
+    ColorModal.Visible = false
+    ColorModal.ZIndex = 50
+    ColorModal.Parent = Main
+    Instance.new("UICorner", ColorModal).CornerRadius = UDim.new(0, 8)
+    local ModalStroke = Instance.new("UIStroke", ColorModal)
+    ModalStroke.Color = Theme.StrokeActive
+    ModalStroke.Thickness = 1.5
+
+    -- Close Button
+    local CloseBtn = Instance.new("TextButton")
+    CloseBtn.Size = UDim2.new(1, 0, 1, 0)
+    CloseBtn.BackgroundTransparency = 1
+    CloseBtn.Text = ""
+    CloseBtn.ZIndex = 49
+    CloseBtn.Parent = Gui
+    CloseBtn.Visible = false
+    CloseBtn.MouseButton1Click:Connect(function()
+        ColorModal.Visible = false
+        CloseBtn.Visible = false
+    end)
+
+    local activeColorCallback = nil
+    local activeColorBox = nil
+    local r, g, b = 255, 255, 255
+
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, 0, 0, 30)
+    Title.BackgroundTransparency = 1
+    Title.Text = "Color Picker"
+    Title.Font = Enum.Font.GothamBold
+    Title.TextSize = 13
+    Title.TextColor3 = Theme.Text
+    Title.ZIndex = 51
+    Title.Parent = ColorModal
+
+    local function createSlider(name, yPos)
+        local Label = Instance.new("TextLabel")
+        Label.Size = UDim2.new(0, 20, 0, 20)
+        Label.Position = UDim2.new(0, 10, 0, yPos)
+        Label.BackgroundTransparency = 1
+        Label.Text = name
+        Label.Font = Enum.Font.GothamBold
+        Label.TextSize = 12
+        Label.TextColor3 = Theme.Text
+        Label.ZIndex = 51
+        Label.Parent = ColorModal
+
+        local BG = Instance.new("TextButton")
+        BG.Size = UDim2.new(0, 150, 0, 10)
+        BG.Position = UDim2.new(0, 35, 0, yPos + 5)
+        BG.BackgroundColor3 = Theme.ToggleBg
+        BG.Text = ""
+        BG.AutoButtonColor = false
+        BG.ZIndex = 51
+        Instance.new("UICorner", BG).CornerRadius = UDim.new(1, 0)
+        BG.Parent = ColorModal
+
+        local Fill = Instance.new("Frame")
+        Fill.Size = UDim2.new(1, 0, 1, 0)
+        Fill.BackgroundColor3 = Theme.StrokeActive
+        Fill.ZIndex = 52
+        Instance.new("UICorner", Fill).CornerRadius = UDim.new(1, 0)
+        Fill.Parent = BG
+
+        local isDragging = false
+        BG.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                isDragging = true
+                local function update()
+                    local pct = math.clamp((UserInputService:GetMouseLocation().X - BG.AbsolutePosition.X) / BG.AbsoluteSize.X, 0, 1)
+                    Fill.Size = UDim2.new(pct, 0, 1, 0)
+                    if name == "R" then r = pct * 255
+                    elseif name == "G" then g = pct * 255
+                    elseif name == "B" then b = pct * 255 end
+                    
+                    local newColor = Color3.fromRGB(r, g, b)
+                    Title.TextColor3 = newColor
+                    if activeColorBox then activeColorBox.BackgroundColor3 = newColor end
+                    if activeColorCallback then activeColorCallback(newColor) end
+                end
+                update()
+                local conn
+                conn = UserInputService.InputChanged:Connect(function(inp)
+                    if inp.UserInputType == Enum.UserInputType.MouseMovement then update() end
+                end)
+                local connEnd
+                connEnd = UserInputService.InputEnded:Connect(function(inp)
+                    if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+                        isDragging = false
+                        conn:Disconnect()
+                        connEnd:Disconnect()
+                    end
+                end)
+            end
+        end)
+        return Fill
+    end
+
+    local fillR = createSlider("R", 40)
+    local fillG = createSlider("G", 70)
+    local fillB = createSlider("B", 100)
+
+    local function OpenColorPicker(defaultColor, box, callback)
+        r, g, b = defaultColor.R * 255, defaultColor.G * 255, defaultColor.B * 255
+        fillR.Size = UDim2.new(defaultColor.R, 0, 1, 0)
+        fillG.Size = UDim2.new(defaultColor.G, 0, 1, 0)
+        fillB.Size = UDim2.new(defaultColor.B, 0, 1, 0)
+        Title.TextColor3 = defaultColor
+        activeColorCallback = callback
+        activeColorBox = box
+        ColorModal.Visible = true
+        CloseBtn.Visible = true
+    end
+
+    local function CreateColorPickerCard(name, order, defaultColor, callback)
+        local Wrapper = Instance.new("Frame")
+        Wrapper.Name = "CardWrapper"; Wrapper.BackgroundTransparency = 1; Wrapper.LayoutOrder = order; Wrapper.Parent = ContentFrame
+        local Card = Instance.new("CanvasGroup")
+        Card.Size = UDim2.new(1, 0, 1, 0); Card.BackgroundColor3 = Theme.Card; Card.Parent = Wrapper; Card:SetAttribute("IsCard", true)
+        Instance.new("UICorner", Card).CornerRadius = UDim.new(0, 8)
+        local CardStroke = Instance.new("UIStroke", Card); CardStroke.Color = Theme.Stroke; CardStroke.Thickness = 1.5
+        local ClickTrigger = Instance.new("TextButton")
+        ClickTrigger.Size = UDim2.new(1, 0, 1, 0); ClickTrigger.BackgroundTransparency = 1; ClickTrigger.Text = ""; ClickTrigger.ZIndex = 5; ClickTrigger.Parent = Card
+        local Label = Instance.new("TextLabel")
+        Instance.new("UIPadding", Label).PaddingLeft = UDim.new(0, 15)
+        Label.Size = UDim2.new(1, -65, 1, 0); Label.BackgroundTransparency = 1; Label.Text = name
+        Label.Font = Enum.Font.GothamBold; Label.TextSize = 13; Label.TextColor3 = Theme.Text; Label.TextXAlignment = Enum.TextXAlignment.Left; Label.Parent = Card
+        
+        local ColorBox = Instance.new("Frame")
+        ColorBox.Size = UDim2.new(0, 24, 0, 18); ColorBox.Position = UDim2.new(1, -39, 0.5, -9)
+        ColorBox.BackgroundColor3 = defaultColor; ColorBox.Parent = Card
+        Instance.new("UICorner", ColorBox).CornerRadius = UDim.new(0, 4)
+        local CStroke = Instance.new("UIStroke", ColorBox); CStroke.Color = Color3.fromRGB(0,0,0); CStroke.Thickness = 1
+        
+        ClickTrigger.MouseButton1Click:Connect(function()
+            CardStroke.Color = Theme.StrokeActive
+            TweenService:Create(CardStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = Theme.Stroke}):Play()
+            OpenColorPicker(ColorBox.BackgroundColor3, ColorBox, callback)
+        end)
+        ClickTrigger.MouseEnter:Connect(function() TweenService:Create(Card, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = Theme.CardHover}):Play() end)
+        ClickTrigger.MouseLeave:Connect(function() TweenService:Create(Card, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = Theme.Card}):Play() end)
+    end
+
     -- ESP Toggle
     CreateToggleCard("Enable ESP", 1, function(val)
-        print("ESP:", val)
+        VisualSettings.EspEnabled = val
+        local espUrl = "https://raw.githubusercontent.com/gfeee724-jpg/visual/main/VisualClient/Modules/ESP.lua"
+        if val then
+            if getgenv().VisualESP then
+                getgenv().VisualESP:Toggle(true)
+            else
+                local ok, err = pcall(function()
+                    getgenv().VisualESP = loadstring(game:HttpGet(espUrl))()
+                    getgenv().VisualESP:Toggle(true)
+                end)
+                if not ok then warn("ESP load error: " .. tostring(err)) end
+            end
+        else
+            if getgenv().VisualESP then
+                getgenv().VisualESP:Toggle(false)
+            end
+        end
     end)
 
     -- Chams Toggle
@@ -573,7 +741,36 @@ do
         end
     end)
 
+    -- Target HUD Toggle
+    CreateToggleCard("Enable Target HUD", 4, function(val)
+        VisualSettings.TargetHudEnabled = val
+        local hudUrl = "https://raw.githubusercontent.com/gfeee724-jpg/visual/main/VisualClient/Modules/TargetHUD.lua"
+        if val then
+            if getgenv().VisualTargetHUD then
+                getgenv().VisualTargetHUD:Toggle(true)
+            else
+                local ok, err = pcall(function()
+                    getgenv().VisualTargetHUD = loadstring(game:HttpGet(hudUrl))()
+                    getgenv().VisualTargetHUD:Toggle(true)
+                end)
+                if not ok then warn("TargetHUD load error: " .. tostring(err)) end
+            end
+        else
+            if getgenv().VisualTargetHUD then
+                getgenv().VisualTargetHUD:Toggle(false)
+            end
+        end
+    end)
+
+    CreateColorPickerCard("ESP Box Color", 5, Color3.fromRGB(255, 255, 255), function(c)
+        if getgenv().VisualESP then getgenv().VisualESP:SetColor(c) end
+    end)
+    CreateColorPickerCard("Chams Fill Color", 6, Color3.fromRGB(170, 0, 255), function(c)
+        if getgenv().VisualChams then getgenv().VisualChams:SetColor(c) end
+    end)
+
     Button.MouseEnter:Connect(function() if CurrentTab ~= ContentFrame then TweenService:Create(Button, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextColor3 = Theme.Text, BackgroundTransparency = 0.9}):Play() end end)
+
     Button.MouseLeave:Connect(function() if CurrentTab ~= ContentFrame then TweenService:Create(Button, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextColor3 = Theme.SubText, BackgroundTransparency = 1}):Play() end end)
     Button.MouseButton1Click:Connect(function()
         if CurrentTab == ContentFrame then return end
