@@ -23,29 +23,22 @@ local GradientColor1 = Color3.fromRGB(130, 80, 255)   -- Violet
 local GradientColor2 = Color3.fromRGB(80, 200, 255)    -- Cyan  
 local GradientColor3 = Color3.fromRGB(255, 80, 180)    -- Magenta
 
-function TargetHUD:GetClosestPlayer()
-    local closest = nil
-    local minDist = self.MaxDistance
-
-    local myChar = LocalPlayer.Character
-    if not myChar then return nil end
-    local myHRP = myChar:FindFirstChild("HumanoidRootPart")
-    if not myHRP then return nil end
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local hum = player.Character:FindFirstChildOfClass("Humanoid")
-            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-            if hum and hum.Health > 0 and hrp then
-                local dist = (myHRP.Position - hrp.Position).Magnitude
-                if dist < minDist then
-                    closest = player
-                    minDist = dist
-                end
+function TargetHUD:GetPlayerFromMouse()
+    local mouse = LocalPlayer:GetMouse()
+    local current = mouse.Target
+    
+    while current and current ~= workspace do
+        local player = Players:GetPlayerFromCharacter(current)
+        if player then
+            if player ~= LocalPlayer then
+                return player
             end
+            break -- Don't show HUD for ourselves
         end
+        current = current.Parent
     end
-    return closest
+    
+    return nil
 end
 
 function TargetHUD:CreateGUI()
@@ -332,9 +325,9 @@ function TargetHUD:Toggle(state)
             self._elements.HealthGradient.Offset = Vector2.new(math.sin(gradOffset * math.pi * 2) * 0.2, 0)
         end
 
-        -- Auto-find closest target
-        local closest = self:GetClosestPlayer()
-        self:UpdateTarget(closest)
+        -- Find target from mouse hover
+        local hoverTarget = self:GetPlayerFromMouse()
+        self:UpdateTarget(hoverTarget)
     end))
 
     -- Cleanup on player leave
