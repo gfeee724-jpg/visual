@@ -1,347 +1,527 @@
--- VisualClient Target HUD Module v1.0
--- Beautiful gradient target info panel with health bar, distance, avatar
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-local CoreGui = game:GetService("CoreGui")
+--[[
+    VisualClient TargetHUD v2.0 — Premium Edition
+    Features:
+      • Avatar thumbnail display
+      • Animated health + armor bars with gradient colors
+      • Smooth fade-in/fade-out transitions
+      • Distance indicator
+      • Weapon/tool name display
+      • Draggable with smooth follow
+      • Pulsing accent line
+      • Rounded visual design (Drawing API)
+]]
 
-local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
-local targetGui = gethui and gethui() or CoreGui
+local Theme = require(script.Parent.Parent.Utils.Theme)
+local Animate = require(script.Parent.Parent.Utils.Animate)
 
 local TargetHUD = {
-    Enabled = false,
-    Target = nil,
-    MaxDistance = 200,
-    _connections = {},
-    _gui = nil,
-    _elements = {},
+    Enabled = true,
+    Position = Vector2.new(500, 400),
+    Size = Vector2.new(260, 90),
+    Dragging = false,
+    CurrentTarget = nil,
+    MaxRange = 1200,
+    ShowAvatar = true,
+    ShowDistance = true,
+    ShowWeapon = true,
 }
 
--- Gradient colors (violet → cyan → magenta)
-local GradientColor1 = Color3.fromRGB(130, 80, 255)   -- Violet
-local GradientColor2 = Color3.fromRGB(80, 200, 255)    -- Cyan  
-local GradientColor3 = Color3.fromRGB(255, 80, 180)    -- Magenta
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local Camera = Workspace.CurrentCamera
 
-function TargetHUD:GetPlayerFromMouse()
-    local mouse = LocalPlayer:GetMouse()
-    local current = mouse.Target
+-- Animation state
+local fadeAlpha = Animate.SmoothValue(0, 8)
+local healthSmooth = Animate.SmoothValue(1, 6)
+local healthColorSmooth = Animate.SmoothColor(Theme.Safe, 6)
+local positionSmooth = Animate.SmoothVector2(Vector2.new(500, 400), 14)
+
+local Drawings = {}
+local avatarImage = nil
+
+-- ══════════════════════════════════════════════════════
+-- DRAWING CREATION
+-- ══════════════════════════════════════════════════════
+
+local function CreateDrawings()
+    -- Main background panel
+    Drawings.BackgroundShadow = Drawing.new("Square")
+    Drawings.BackgroundShadow.Color = Color3.fromRGB(0, 0, 0)
+    Drawings.BackgroundShadow.Filled = true
+    Drawings.BackgroundShadow.Transparency = 0.3
+    Drawings.BackgroundShadow.Visible = false
+
+    Drawings.Background = Drawing.new("Square")
+    Drawings.Background.Color = Theme.Background
+    Drawings.Background.Filled = true
+    Drawings.Background.Transparency = 0.95
+    Drawings.Background.Visible = false
+
+    -- Top accent gradient line
+    Drawings.AccentLine = Drawing.new("Square")
+    Drawings.AccentLine.Color = Theme.Accent
+    Drawings.AccentLine.Filled = true
+    Drawings.AccentLine.Visible = false
+
+    -- Secondary accent line (right side, for gradient effect)
+    Drawings.AccentLine2 = Drawing.new("Square")
+    Drawings.AccentLine2.Color = Theme.Secondary
+    Drawings.AccentLine2.Filled = true
+    Drawings.AccentLine2.Visible = false
+
+    -- Border outline
+    Drawings.BorderTop = Drawing.new("Line")
+    Drawings.BorderTop.Color = Theme.Border
+    Drawings.BorderTop.Thickness = 1
+    Drawings.BorderTop.Visible = false
+
+    Drawings.BorderBottom = Drawing.new("Line")
+    Drawings.BorderBottom.Color = Theme.Border
+    Drawings.BorderBottom.Thickness = 1
+    Drawings.BorderBottom.Visible = false
+
+    Drawings.BorderLeft = Drawing.new("Line")
+    Drawings.BorderLeft.Color = Theme.Border
+    Drawings.BorderLeft.Thickness = 1
+    Drawings.BorderLeft.Visible = false
+
+    Drawings.BorderRight = Drawing.new("Line")
+    Drawings.BorderRight.Color = Theme.Border
+    Drawings.BorderRight.Thickness = 1
+    Drawings.BorderRight.Visible = false
+
+    -- Avatar background
+    Drawings.AvatarBg = Drawing.new("Square")
+    Drawings.AvatarBg.Color = Theme.Surface
+    Drawings.AvatarBg.Filled = true
+    Drawings.AvatarBg.Visible = false
+
+    -- Avatar border
+    Drawings.AvatarBorder = Drawing.new("Square")
+    Drawings.AvatarBorder.Color = Theme.Accent
+    Drawings.AvatarBorder.Filled = false
+    Drawings.AvatarBorder.Thickness = 1
+    Drawings.AvatarBorder.Visible = false
+
+    -- Player name
+    Drawings.Name = Drawing.new("Text")
+    Drawings.Name.Color = Theme.Text
+    Drawings.Name.Size = Theme.FontSizeLarge
+    Drawings.Name.Center = false
+    Drawings.Name.Outline = true
+    Drawings.Name.Font = Drawing.Fonts.Plex
+    Drawings.Name.Visible = false
+
+    -- Display name (smaller, muted)
+    Drawings.DisplayName = Drawing.new("Text")
+    Drawings.DisplayName.Color = Theme.TextMuted
+    Drawings.DisplayName.Size = Theme.FontSizeSmall
+    Drawings.DisplayName.Center = false
+    Drawings.DisplayName.Outline = true
+    Drawings.DisplayName.Font = Drawing.Fonts.Plex
+    Drawings.DisplayName.Visible = false
+
+    -- Health bar background
+    Drawings.HealthBarBg = Drawing.new("Square")
+    Drawings.HealthBarBg.Color = Theme.Surface
+    Drawings.HealthBarBg.Filled = true
+    Drawings.HealthBarBg.Visible = false
+
+    -- Health bar fill
+    Drawings.HealthBar = Drawing.new("Square")
+    Drawings.HealthBar.Color = Theme.Safe
+    Drawings.HealthBar.Filled = true
+    Drawings.HealthBar.Visible = false
+
+    -- Health bar glow (overlay for pulsing effect when low)
+    Drawings.HealthBarGlow = Drawing.new("Square")
+    Drawings.HealthBarGlow.Color = Theme.DangerGlow
+    Drawings.HealthBarGlow.Filled = true
+    Drawings.HealthBarGlow.Transparency = 0
+    Drawings.HealthBarGlow.Visible = false
+
+    -- Health text
+    Drawings.HealthText = Drawing.new("Text")
+    Drawings.HealthText.Color = Theme.TextSecondary
+    Drawings.HealthText.Size = Theme.FontSizeSmall
+    Drawings.HealthText.Center = false
+    Drawings.HealthText.Outline = true
+    Drawings.HealthText.Font = Drawing.Fonts.Plex
+    Drawings.HealthText.Visible = false
+
+    -- Health percentage
+    Drawings.HealthPercent = Drawing.new("Text")
+    Drawings.HealthPercent.Color = Theme.Text
+    Drawings.HealthPercent.Size = Theme.FontSizeSmall
+    Drawings.HealthPercent.Center = false
+    Drawings.HealthPercent.Outline = true
+    Drawings.HealthPercent.Font = Drawing.Fonts.Plex
+    Drawings.HealthPercent.Visible = false
+
+    -- Distance text
+    Drawings.DistanceText = Drawing.new("Text")
+    Drawings.DistanceText.Color = Theme.TextMuted
+    Drawings.DistanceText.Size = Theme.FontSizeSmall
+    Drawings.DistanceText.Center = false
+    Drawings.DistanceText.Outline = true
+    Drawings.DistanceText.Font = Drawing.Fonts.Plex
+    Drawings.DistanceText.Visible = false
+
+    -- Weapon/Tool text
+    Drawings.WeaponText = Drawing.new("Text")
+    Drawings.WeaponText.Color = Theme.TextAccent
+    Drawings.WeaponText.Size = Theme.FontSizeSmall
+    Drawings.WeaponText.Center = false
+    Drawings.WeaponText.Outline = true
+    Drawings.WeaponText.Font = Drawing.Fonts.Plex
+    Drawings.WeaponText.Visible = false
+
+    -- Separator line
+    Drawings.Separator = Drawing.new("Line")
+    Drawings.Separator.Color = Theme.Border
+    Drawings.Separator.Thickness = 1
+    Drawings.Separator.Visible = false
+end
+
+-- ══════════════════════════════════════════════════════
+-- TARGET FINDING
+-- ══════════════════════════════════════════════════════
+
+local function GetClosestTarget()
+    local localPlayer = Players.LocalPlayer
+    if not localPlayer or not localPlayer.Character then return nil end
     
-    while current and current ~= workspace do
-        local player = Players:GetPlayerFromCharacter(current)
-        if player then
-            if player ~= LocalPlayer then
-                return player
+    local closestDist = math.huge
+    local target = nil
+    local mousePos = UserInputService:GetMouseLocation()
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= localPlayer and player.Character then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            local hum = player.Character:FindFirstChild("Humanoid")
+            
+            if hrp and hum and hum.Health > 0 then
+                local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+                if onScreen then
+                    local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+                    if dist < closestDist and dist < TargetHUD.MaxRange then
+                        closestDist = dist
+                        target = player
+                    end
+                end
             end
-            break -- Don't show HUD for ourselves
         end
-        current = current.Parent
     end
-    
+    return target
+end
+
+-- ══════════════════════════════════════════════════════
+-- GET ACTIVE TOOL NAME
+-- ══════════════════════════════════════════════════════
+
+local function GetActiveTool(character)
+    if not character then return nil end
+    for _, child in pairs(character:GetChildren()) do
+        if child:IsA("Tool") then
+            return child.Name
+        end
+    end
     return nil
 end
 
-function TargetHUD:CreateGUI()
-    if self._gui then pcall(function() self._gui:Destroy() end) end
+-- ══════════════════════════════════════════════════════
+-- GET DISTANCE TO TARGET
+-- ══════════════════════════════════════════════════════
 
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "VC_TargetHUD_" .. math.random(1000, 9999)
-    gui.ResetOnSpawn = false
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    gui.Parent = targetGui
-    self._gui = gui
+local function GetDistanceToTarget(targetChar)
+    local localChar = Players.LocalPlayer and Players.LocalPlayer.Character
+    if not localChar or not targetChar then return 0 end
+    
+    local localHRP = localChar:FindFirstChild("HumanoidRootPart")
+    local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
+    
+    if localHRP and targetHRP then
+        return (localHRP.Position - targetHRP.Position).Magnitude
+    end
+    return 0
+end
 
-    -- Main container
-    local container = Instance.new("CanvasGroup")
-    container.Name = "Container"
-    container.Size = UDim2.new(0, 280, 0, 90)
-    container.Position = UDim2.new(0.5, 0, 0.2, 0)
-    container.AnchorPoint = Vector2.new(0.5, 0)
-    container.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
-    container.GroupTransparency = 1
-    container.Parent = gui
-    self._elements.Container = container
+-- ══════════════════════════════════════════════════════
+-- SET VISIBILITY FOR ALL DRAWINGS
+-- ══════════════════════════════════════════════════════
 
-    Instance.new("UICorner", container).CornerRadius = UDim.new(0, 12)
+local function SetAllVisible(visible)
+    for _, v in pairs(Drawings) do
+        if typeof(v) ~= "table" then
+            v.Visible = visible
+        end
+    end
+end
 
-    local stroke = Instance.new("UIStroke", container)
-    stroke.Color = Color3.fromRGB(50, 50, 60)
-    stroke.Thickness = 1.5
-    stroke.Transparency = 0.3
+-- ══════════════════════════════════════════════════════
+-- UPDATE POSITIONS & CONTENT
+-- ══════════════════════════════════════════════════════
 
-    -- Gradient accent bar (top)
-    local topBar = Instance.new("Frame")
-    topBar.Name = "TopBar"
-    topBar.Size = UDim2.new(1, 0, 0, 3)
-    topBar.Position = UDim2.new(0, 0, 0, 0)
-    topBar.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    topBar.BorderSizePixel = 0
-    topBar.Parent = container
+local function UpdateHUD(dt, pos, target)
+    local W = TargetHUD.Size.X
+    local H = TargetHUD.Size.Y
+    local alpha = fadeAlpha:Get()
 
-    local topBarCorner = Instance.new("UICorner", topBar)
-    topBarCorner.CornerRadius = UDim.new(0, 12)
+    if alpha < 0.01 then
+        SetAllVisible(false)
+        return
+    end
 
-    local topGradient = Instance.new("UIGradient", topBar)
-    topGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, GradientColor1),
-        ColorSequenceKeypoint.new(0.5, GradientColor2),
-        ColorSequenceKeypoint.new(1, GradientColor3),
-    })
-    self._elements.TopGradient = topGradient
+    local character = target.Character
+    local humanoid = character and character:FindFirstChild("Humanoid")
+    if not humanoid then 
+        SetAllVisible(false)
+        return 
+    end
 
-    -- Fix rounded corners at bottom of accent bar
-    local topBarFix = Instance.new("Frame")
-    topBarFix.Size = UDim2.new(1, 0, 0, 2)
-    topBarFix.Position = UDim2.new(0, 0, 1, -2)
-    topBarFix.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    topBarFix.BorderSizePixel = 0
-    topBarFix.Parent = topBar
-    local topBarFixGrad = Instance.new("UIGradient", topBarFix)
-    topBarFixGrad.Color = topGradient.Color
+    local healthPct = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
+    healthSmooth:Set(healthPct)
+    local smoothHP = healthSmooth:Update(dt)
+    
+    local healthColor = Theme.GetHealthColor(healthPct)
+    healthColorSmooth:Set(healthColor)
+    local smoothColor = healthColorSmooth:Update(dt)
 
-    -- Avatar frame
-    local avatarFrame = Instance.new("ImageLabel")
-    avatarFrame.Name = "Avatar"
-    avatarFrame.Size = UDim2.new(0, 52, 0, 52)
-    avatarFrame.Position = UDim2.new(0, 14, 0, 20)
-    avatarFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
-    avatarFrame.Image = ""
-    avatarFrame.Parent = container
-    self._elements.Avatar = avatarFrame
+    -- Avatar dimensions
+    local avatarSize = 52
+    local avatarPad = 10
+    local contentX = pos.X + avatarPad + avatarSize + 10
+    local barWidth = W - avatarPad - avatarSize - 20
 
-    Instance.new("UICorner", avatarFrame).CornerRadius = UDim.new(0, 10)
+    -- Calculate pulsing accent
+    local pulse = Theme.GetPulse(3)
+    local accentColor = Theme.LerpColor(Theme.Accent, Theme.AccentBright, pulse * 0.3)
 
-    local avatarStroke = Instance.new("UIStroke", avatarFrame)
-    avatarStroke.Color = GradientColor1
-    avatarStroke.Thickness = 1.5
-    avatarStroke.Transparency = 0.4
+    -- Shadow
+    Drawings.BackgroundShadow.Position = pos + Vector2.new(3, 3)
+    Drawings.BackgroundShadow.Size = Vector2.new(W, H)
+    Drawings.BackgroundShadow.Transparency = alpha * 0.25
+    Drawings.BackgroundShadow.Visible = true
+
+    -- Background
+    Drawings.Background.Position = pos
+    Drawings.Background.Size = Vector2.new(W, H)
+    Drawings.Background.Transparency = alpha * 0.95
+    Drawings.Background.Visible = true
+
+    -- Accent gradient line (top)
+    local halfW = math.floor(W / 2)
+    Drawings.AccentLine.Position = pos
+    Drawings.AccentLine.Size = Vector2.new(halfW, 2)
+    Drawings.AccentLine.Color = accentColor
+    Drawings.AccentLine.Transparency = alpha
+    Drawings.AccentLine.Visible = true
+
+    Drawings.AccentLine2.Position = pos + Vector2.new(halfW, 0)
+    Drawings.AccentLine2.Size = Vector2.new(W - halfW, 2)
+    Drawings.AccentLine2.Color = Theme.LerpColor(accentColor, Theme.Secondary, 0.7)
+    Drawings.AccentLine2.Transparency = alpha
+    Drawings.AccentLine2.Visible = true
+
+    -- Borders
+    Drawings.BorderTop.From = pos
+    Drawings.BorderTop.To = pos + Vector2.new(W, 0)
+    Drawings.BorderTop.Transparency = alpha * 0.5
+    Drawings.BorderTop.Visible = true
+
+    Drawings.BorderBottom.From = pos + Vector2.new(0, H)
+    Drawings.BorderBottom.To = pos + Vector2.new(W, H)
+    Drawings.BorderBottom.Transparency = alpha * 0.5
+    Drawings.BorderBottom.Visible = true
+
+    Drawings.BorderLeft.From = pos
+    Drawings.BorderLeft.To = pos + Vector2.new(0, H)
+    Drawings.BorderLeft.Transparency = alpha * 0.5
+    Drawings.BorderLeft.Visible = true
+
+    Drawings.BorderRight.From = pos + Vector2.new(W, 0)
+    Drawings.BorderRight.To = pos + Vector2.new(W, H)
+    Drawings.BorderRight.Transparency = alpha * 0.5
+    Drawings.BorderRight.Visible = true
+
+    -- Avatar area
+    local avatarPos = pos + Vector2.new(avatarPad, (H - avatarSize) / 2 + 1)
+    Drawings.AvatarBg.Position = avatarPos
+    Drawings.AvatarBg.Size = Vector2.new(avatarSize, avatarSize)
+    Drawings.AvatarBg.Transparency = alpha
+    Drawings.AvatarBg.Visible = true
+
+    Drawings.AvatarBorder.Position = avatarPos - Vector2.new(1, 1)
+    Drawings.AvatarBorder.Size = Vector2.new(avatarSize + 2, avatarSize + 2)
+    Drawings.AvatarBorder.Color = accentColor
+    Drawings.AvatarBorder.Transparency = alpha * 0.6
+    Drawings.AvatarBorder.Visible = true
 
     -- Player name
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Name = "PlayerName"
-    nameLabel.Size = UDim2.new(0, 170, 0, 20)
-    nameLabel.Position = UDim2.new(0, 78, 0, 18)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = "No Target"
-    nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextSize = 14
-    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-    nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-    nameLabel.Parent = container
-    self._elements.Name = nameLabel
+    Drawings.Name.Text = target.Name
+    Drawings.Name.Position = Vector2.new(contentX, pos.Y + 8)
+    Drawings.Name.Transparency = alpha
+    Drawings.Name.Visible = true
 
-    -- Distance label
-    local distLabel = Instance.new("TextLabel")
-    distLabel.Name = "Distance"
-    distLabel.Size = UDim2.new(0, 80, 0, 14)
-    distLabel.Position = UDim2.new(0, 78, 0, 38)
-    distLabel.BackgroundTransparency = 1
-    distLabel.Text = "0m"
-    distLabel.Font = Enum.Font.GothamMedium
-    distLabel.TextSize = 11
-    distLabel.TextColor3 = Color3.fromRGB(140, 140, 160)
-    distLabel.TextXAlignment = Enum.TextXAlignment.Left
-    distLabel.Parent = container
-    self._elements.Distance = distLabel
+    -- Display name
+    local displayName = target.DisplayName or target.Name
+    if displayName ~= target.Name then
+        Drawings.DisplayName.Text = "(" .. displayName .. ")"
+        Drawings.DisplayName.Position = Vector2.new(contentX, pos.Y + 26)
+        Drawings.DisplayName.Transparency = alpha * 0.7
+        Drawings.DisplayName.Visible = true
+    else
+        Drawings.DisplayName.Visible = false
+    end
 
-    -- Health text  
-    local healthText = Instance.new("TextLabel")
-    healthText.Name = "HealthText"
-    healthText.Size = UDim2.new(0, 60, 0, 14)
-    healthText.Position = UDim2.new(1, -74, 0, 38)
-    healthText.BackgroundTransparency = 1
-    healthText.Text = "100 HP"
-    healthText.Font = Enum.Font.GothamBold
-    healthText.TextSize = 11
-    healthText.TextColor3 = GradientColor2
-    healthText.TextXAlignment = Enum.TextXAlignment.Right
-    healthText.Parent = container
-    self._elements.HealthText = healthText
+    -- Row for health bar
+    local barY = pos.Y + 42
+    local barH = 6
 
     -- Health bar background
-    local hpBarBg = Instance.new("Frame")
-    hpBarBg.Name = "HealthBarBg"
-    hpBarBg.Size = UDim2.new(0, 190, 0, 6)
-    hpBarBg.Position = UDim2.new(0, 78, 0, 62)
-    hpBarBg.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
-    hpBarBg.BorderSizePixel = 0
-    hpBarBg.Parent = container
-    Instance.new("UICorner", hpBarBg).CornerRadius = UDim.new(1, 0)
+    Drawings.HealthBarBg.Position = Vector2.new(contentX, barY)
+    Drawings.HealthBarBg.Size = Vector2.new(barWidth, barH)
+    Drawings.HealthBarBg.Transparency = alpha
+    Drawings.HealthBarBg.Visible = true
 
-    -- Health bar fill with gradient
-    local hpBarFill = Instance.new("Frame")
-    hpBarFill.Name = "HealthBarFill"
-    hpBarFill.Size = UDim2.new(1, 0, 1, 0)
-    hpBarFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    hpBarFill.BorderSizePixel = 0
-    hpBarFill.Parent = hpBarBg
-    Instance.new("UICorner", hpBarFill).CornerRadius = UDim.new(1, 0)
-    self._elements.HealthBar = hpBarFill
+    -- Health bar fill
+    local fillWidth = math.max(1, barWidth * smoothHP)
+    Drawings.HealthBar.Position = Vector2.new(contentX, barY)
+    Drawings.HealthBar.Size = Vector2.new(fillWidth, barH)
+    Drawings.HealthBar.Color = smoothColor
+    Drawings.HealthBar.Transparency = alpha
+    Drawings.HealthBar.Visible = true
 
-    local hpGradient = Instance.new("UIGradient", hpBarFill)
-    hpGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, GradientColor1),
-        ColorSequenceKeypoint.new(0.5, GradientColor2),
-        ColorSequenceKeypoint.new(1, GradientColor3),
-    })
-    self._elements.HealthGradient = hpGradient
-
-    -- Glow effect under health bar
-    local glow = Instance.new("Frame")
-    glow.Size = UDim2.new(1, 4, 0, 8)
-    glow.Position = UDim2.new(0, -2, 0.5, -4)
-    glow.BackgroundColor3 = GradientColor2
-    glow.BackgroundTransparency = 0.7
-    glow.BorderSizePixel = 0
-    glow.Parent = hpBarFill
-    Instance.new("UICorner", glow).CornerRadius = UDim.new(1, 0)
-
-    return gui
-end
-
-function TargetHUD:Show()
-    if not self._elements.Container then return end
-    TweenService:Create(self._elements.Container, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-        GroupTransparency = 0,
-        Position = UDim2.new(0.5, 0, 0.2, 0)
-    }):Play()
-end
-
-function TargetHUD:Hide()
-    if not self._elements.Container then return end
-    TweenService:Create(self._elements.Container, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
-        GroupTransparency = 1,
-        Position = UDim2.new(0.5, 0, 0.18, 0)
-    }):Play()
-end
-
-function TargetHUD:UpdateTarget(player)
-    if not player or not player.Character then
-        if self.Target then
-            self.Target = nil
-            self:Hide()
-        end
-        return
+    -- Pulsing glow when health is low
+    if healthPct < 0.3 then
+        local glowAlpha = pulse * 0.4 * alpha
+        Drawings.HealthBarGlow.Position = Vector2.new(contentX, barY)
+        Drawings.HealthBarGlow.Size = Vector2.new(fillWidth, barH)
+        Drawings.HealthBarGlow.Transparency = glowAlpha
+        Drawings.HealthBarGlow.Color = Theme.DangerGlow
+        Drawings.HealthBarGlow.Visible = true
+    else
+        Drawings.HealthBarGlow.Visible = false
     end
 
-    local hum = player.Character:FindFirstChildOfClass("Humanoid")
-    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-    if not hum or hum.Health <= 0 or not hrp then
-        if self.Target then
-            self.Target = nil
-            self:Hide()
-        end
-        return
+    -- Health text
+    Drawings.HealthText.Text = string.format("HP: %d/%d", math.floor(humanoid.Health), math.floor(humanoid.MaxHealth))
+    Drawings.HealthText.Position = Vector2.new(contentX, barY + barH + 3)
+    Drawings.HealthText.Transparency = alpha * 0.8
+    Drawings.HealthText.Visible = true
+
+    -- Health percentage (aligned right)
+    Drawings.HealthPercent.Text = string.format("%d%%", math.floor(healthPct * 100))
+    Drawings.HealthPercent.Position = Vector2.new(contentX + barWidth - 25, barY + barH + 3)
+    Drawings.HealthPercent.Color = smoothColor
+    Drawings.HealthPercent.Transparency = alpha
+    Drawings.HealthPercent.Visible = true
+
+    -- Distance
+    if TargetHUD.ShowDistance then
+        local dist = GetDistanceToTarget(character)
+        Drawings.DistanceText.Text = string.format("%.0f studs", dist)
+        Drawings.DistanceText.Position = Vector2.new(contentX, pos.Y + H - 18)
+        Drawings.DistanceText.Transparency = alpha * 0.6
+        Drawings.DistanceText.Visible = true
+    else
+        Drawings.DistanceText.Visible = false
     end
 
-    local wasNil = (self.Target == nil)
-    self.Target = player
-
-    -- Update avatar
-    local avatarUrl = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. player.UserId .. "&width=150&height=150&format=png"
-    if self._elements.Avatar then
-        self._elements.Avatar.Image = avatarUrl
-    end
-
-    -- Update name
-    if self._elements.Name then
-        local displayName = player.DisplayName
-        if displayName ~= player.Name then
-            self._elements.Name.Text = displayName .. " (" .. player.Name .. ")"
+    -- Weapon
+    if TargetHUD.ShowWeapon then
+        local toolName = GetActiveTool(character)
+        if toolName then
+            Drawings.WeaponText.Text = "⚔ " .. toolName
+            Drawings.WeaponText.Position = Vector2.new(contentX + barWidth - 60, pos.Y + H - 18)
+            Drawings.WeaponText.Transparency = alpha * 0.8
+            Drawings.WeaponText.Visible = true
         else
-            self._elements.Name.Text = player.Name
+            Drawings.WeaponText.Visible = false
         end
+    else
+        Drawings.WeaponText.Visible = false
     end
 
-    -- Update health
-    local hp = math.floor(hum.Health)
-    local maxHp = math.floor(hum.MaxHealth)
-    local ratio = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
-
-    if self._elements.HealthText then
-        self._elements.HealthText.Text = hp .. " HP"
-        -- Color health text based on ratio
-        if ratio > 0.6 then
-            self._elements.HealthText.TextColor3 = GradientColor2
-        elseif ratio > 0.3 then
-            self._elements.HealthText.TextColor3 = Color3.fromRGB(255, 200, 80)
-        else
-            self._elements.HealthText.TextColor3 = Color3.fromRGB(255, 80, 80)
-        end
-    end
-
-    -- Smooth health bar
-    if self._elements.HealthBar then
-        TweenService:Create(self._elements.HealthBar, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-            Size = UDim2.new(ratio, 0, 1, 0)
-        }):Play()
-    end
-
-    -- Update distance
-    local myChar = LocalPlayer.Character
-    if myChar and myChar:FindFirstChild("HumanoidRootPart") and self._elements.Distance then
-        local dist = math.floor((myChar.HumanoidRootPart.Position - hrp.Position).Magnitude)
-        self._elements.Distance.Text = dist .. "m away"
-    end
-
-    if wasNil then
-        self:Show()
-    end
+    -- Separator
+    Drawings.Separator.From = Vector2.new(contentX, barY - 3)
+    Drawings.Separator.To = Vector2.new(contentX + barWidth, barY - 3)
+    Drawings.Separator.Color = Theme.Border
+    Drawings.Separator.Transparency = alpha * 0.3
+    Drawings.Separator.Visible = false -- subtle, disabled by default
 end
 
-function TargetHUD:Toggle(state)
-    self.Enabled = state
+-- ══════════════════════════════════════════════════════
+-- INIT
+-- ══════════════════════════════════════════════════════
 
-    for _, conn in ipairs(self._connections) do
-        if conn.Connected then conn:Disconnect() end
-    end
-    self._connections = {}
+function TargetHUD:Init()
+    CreateDrawings()
+    positionSmooth:Set(TargetHUD.Position)
 
-    if not state then
-        self.Target = nil
-        self:Hide()
-        task.delay(0.3, function()
-            if not self.Enabled and self._gui then
-                self._gui:Destroy()
-                self._gui = nil
-                self._elements = {}
+    -- ─── Render Loop ───
+    RunService.RenderStepped:Connect(function(dt)
+        if not TargetHUD.Enabled then
+            fadeAlpha:Set(0)
+            fadeAlpha:Update(dt)
+            if fadeAlpha:Get() < 0.01 then
+                SetAllVisible(false)
             end
-        end)
-        return
-    end
-
-    self:CreateGUI()
-
-    -- Gradient animation (slowly shifts the gradient offset for a living feel)
-    local gradOffset = 0
-    table.insert(self._connections, RunService.RenderStepped:Connect(function(dt)
-        gradOffset = (gradOffset + dt * 0.2) % 1
-
-        if self._elements.TopGradient then
-            self._elements.TopGradient.Offset = Vector2.new(math.sin(gradOffset * math.pi * 2) * 0.3, 0)
-        end
-        if self._elements.HealthGradient then
-            self._elements.HealthGradient.Offset = Vector2.new(math.sin(gradOffset * math.pi * 2) * 0.2, 0)
+            return
         end
 
-        -- Find target from mouse hover
-        local hoverTarget = self:GetPlayerFromMouse()
-        self:UpdateTarget(hoverTarget)
-    end))
+        TargetHUD.CurrentTarget = GetClosestTarget()
 
-    -- Cleanup on player leave
-    table.insert(self._connections, Players.PlayerRemoving:Connect(function(player)
-        if self.Target == player then
-            self.Target = nil
-            self:Hide()
+        if TargetHUD.CurrentTarget and TargetHUD.CurrentTarget.Character and TargetHUD.CurrentTarget.Character:FindFirstChild("Humanoid") then
+            fadeAlpha:Set(1)
+        else
+            fadeAlpha:Set(0)
         end
-    end))
-end
+        fadeAlpha:Update(dt)
 
-function TargetHUD:Destroy()
-    self:Toggle(false)
-    if self._gui then self._gui:Destroy() end
+        -- Smooth position
+        positionSmooth:Set(TargetHUD.Position)
+        local smoothPos = positionSmooth:Update(dt)
+
+        if fadeAlpha:Get() > 0.01 and TargetHUD.CurrentTarget then
+            UpdateHUD(dt, smoothPos, TargetHUD.CurrentTarget)
+        else
+            SetAllVisible(false)
+        end
+    end)
+
+    -- ─── Drag Logic ───
+    local dragStart
+    local startPos
+
+    UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local mouseLoc = UserInputService:GetMouseLocation()
+            local pos = TargetHUD.Position
+            local sz = TargetHUD.Size
+            if mouseLoc.X >= pos.X and mouseLoc.X <= pos.X + sz.X and
+               mouseLoc.Y >= pos.Y and mouseLoc.Y <= pos.Y + sz.Y then
+                TargetHUD.Dragging = true
+                dragStart = mouseLoc
+                startPos = TargetHUD.Position
+            end
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            TargetHUD.Dragging = false
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement and TargetHUD.Dragging then
+            local delta = UserInputService:GetMouseLocation() - dragStart
+            TargetHUD.Position = startPos + delta
+        end
+    end)
 end
 
 return TargetHUD
